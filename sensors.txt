@@ -1,0 +1,13 @@
+#Absolute coordiantes of the reference diode
+x y z
+10939 8998 6453
+ #Relative coordiantes of the reference diode
+x y z
+-61170 -28338 1000
+    #Relative coordinates of the sensors to the reference diode
+#First line sensor names, second line x-coordinate
+#third line y-coordinate, fourth line z-coordinate
+First Second Third Fourth Fifth Sixth Seventh Ref
+10650 19488 -10943 -7 31412 21345 10650 0
+487 29198 2400 29324 -470 325 487 0
+0 0 0 0 0 0 0 0

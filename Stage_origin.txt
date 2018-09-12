@@ -1,0 +1,4 @@
+01:12PM on June 26, 2017
+#Origin position in relative coordiantes
+x y z
+72109 37336 5453 

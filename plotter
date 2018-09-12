@@ -1,0 +1,65 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+
+import argparse
+import numpy as np
+import pylab
+import analyzeData as aD
+from TCTData import TCTData
+
+
+def plotdata( xdata, ydata, cont, args, lab ):
+  fig = pylab.figure( 1, ( 7, 5 ) )
+  fig.add_subplot( args.canvas[ 0 ], args.canvas[ 1 ], cont )
+  pylab.plot( xdata, ydata, "-", label = lab )
+  pylab.ticklabel_format( style = 'sci', scilimits = ( 0, 0 ) )
+  pylab.xlabel( "Time [s]" )
+  pylab.ylabel( "Signal [V]" )
+  pylab.legend( loc = 1 )
+  pylab.grid( True )
+  pylab.tight_layout()
+
+def parseador():
+  parser = argparse.ArgumentParser( description = "Plot data in scatter format from a binary file" )
+  parser.add_argument( "-a", "--accumulation_mode", action = 'store_true', help = "plot all the signals in the same plotl" )
+  parser.add_argument( "-n", "--noise_file", help = "noise file to superimpose to the signal", metavar = "" )
+  parser.add_argument( "-w", "--without_noise", action = 'store_true', help = "plot only without noise" )
+  parser.add_argument( "-f", "--files", nargs = "+", help = "binary file list to plot", metavar = "" )
+  parser.add_argument( "-p", "--plots", type = int, default = 1, choices = range( 1, 37 ), help = "number of plots per canvas. Allowed values are 1 to 36. Default = %(default)s", metavar = ""  )
+  parser.add_argument( "-c", "--canvas", nargs = 2, type = int, default = [ 1, 1 ], choices = range( 1, 5 ), help = "number of columns and rows per canvas. Allowed values are 1 to 4. Default = %(default)s", metavar = "" )
+  parser.add_argument( "-i", "--initial_plot", type = int, default = 0, help = "set the initial waveform to plot. Default = %(default)s", metavar = "" )
+  args = parser.parse_args()
+  if args.plots > args.canvas[ 0 ] * args.canvas[ 1 ]:
+    rows = int( np.ceil( np.sqrt( args.plots ) ) )
+    args.canvas = [ rows, int( np.ceil( args.plots / float( rows ) ) ) ]
+  return args
+
+def main( files, noise = None, plots = 1, canvas = [ 1, 1 ], initial_plot = 0, accumulation = False ):
+  aD.plot_parameters( plots )
+  cont = 1
+  if noise:
+    noiseTCT = TCTData( noise )
+    aD.getData( noiseTCT )
+    aD.convertAndShiftData( noiseTCT )
+  for filename in args.files:
+    dataTCT = TCTData( filename )
+    aD.getData( dataTCT )
+    aD.convertAndShiftData( dataTCT )
+    for i in range( initial_plot, len( dataTCT.ydata ) ):
+      if noise:
+        if not args.without_noise:
+          plotdata( noiseTCT.xdata, noiseTCT.ydata[ 0 ], cont, args, "Noise" )
+        plotdata( noiseTCT.xdata, np.array( dataTCT.ydata[ i ] ) - np.array( noiseTCT.ydata[ 0 ] ), cont, args, "Noiseless-Waveform" )
+      if not args.without_noise:
+        plotdata( dataTCT.xdata, dataTCT.ydata[ i ], cont, args, "Waveform-" + str( cont ) )
+      if accumulation and filename != args.files[ -1 ]:
+        cont = 0
+      cont += 1
+      if cont > plots:
+        pylab.show()
+        return
+
+if __name__ == "__main__":
+  args = parseador()
+  main( args.files, args.noise_file, args.plots, args.canvas, args.initial_plot, args.accumulation_mode )

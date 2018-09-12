@@ -1,0 +1,170 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+
+import argparse
+import shutil
+from OOHw.interface.InterfaceFactory import InterfaceFactory
+from OOHw.files.BINWriter import BINWriter
+import powerSupply as pW
+import coordinatesFile as cF
+import stages
+import time
+
+
+def confScope( scope, channel ):
+  scope.channel = "C" + str( channel )
+  scope.function = "F" + str( channel )
+  scope.coupling( scope.channel, "D50" )
+  scope.trace( scope.channel, "ON" )
+  scope.trace( scope.function, "ON" )
+
+def acquireData( scope, numAcquisitions, averageNumber, filename, channel ):
+  binwriter = BINWriter( filename )
+  for i in range( 1, numAcquisitions + 1 ):
+    scope.clearSweeps()
+    while scope.obtainPreamble( channel )[ "SWEEPS_PER_ACQ" ] != str( averageNumber ):
+      print "Sweeps: %s/%s" % ( scope.obtainPreamble( channel )[ "SWEEPS_PER_ACQ" ], averageNumber )
+      time.sleep( .5 )
+    waveform, points, bytesPoint = scope.readWaveformBIN( channel )
+    if i == 1:
+      binwriter.header = scope.preamble
+      binwriter.bytesPerPoint( bytesPoint )
+      binwriter.pointsPerMeasurement( points )
+    binwriter.addData( waveform )
+  binwriter.writeData()
+  binwriter.close()
+
+def getElectronicNoiseSignal( s, sensors, args, scope, channel ):
+  coord = list( sensors[ args.subparser ] )
+  coord[ 1 ] += 5000
+  stages.sendtoCoordinates( s, coord )
+  print "\nAcquiring electronic noise"
+  acquireData( scope, 1, args.average_number, "electronicNoise.bin", channel )
+  stages.sendtoCoordinates( s, sensors[ args.subparser ] )
+
+def findOptimumPosition( sensors, scope, args, channel ):
+  """** Use the line ** to change the relative coordinates to do the 2D scan. In the first interation is interesting to begin from 0
+  to positive values so we can set the laser outisde the whole manually.
+  """
+  data = []
+  axes = [ "x", "y", "z" ]
+  if args.size in [ "Ref", "Small" ]:
+    # Small diodes measure 1.3mm wide. Reference 1.8mm wide.
+    rangesteps = { "x" : [ -1500, 1500, 50 ], "y" : [ -1500, 1500, 50 ], "z" : [ -9000, 15000, 100 ] }
+  elif args.size in [ "Rough" ]:
+    rangesteps = { "x" : [ -1500, 1500, 150 ], "y" : [ -1500, 1500, 150 ], "z" : [ -9000, 15000, 100 ] }
+  elif args.size in [ "Medium" ]:
+    rangesteps = { "x" : [ -750, 750, 75 ], "y" : [ -750, 750, 75 ], "z" : [ -9000, 15000, 100 ] }
+  elif args.size in [ "Fine" ]:
+    rangesteps = { "x" : [ -150, 150, 10 ], "y" : [ -150, 150, 10 ], "z" : [ -9000, 15000, 100 ] }
+  else:
+    # Big diodes measure 3mm wide.
+    rangesteps = { "x" : [ -2500, 2500, 250 ], "y" : [ -2500, 2500, 250 ], "z" : [ -13000, 4000, 300 ] }
+  center = sensors[ args.subparser ]
+  rangoX = range( rangesteps[ "x" ][ 0 ], rangesteps[ "x" ][ 1 ], rangesteps[ "x" ][ 2 ] )
+  rangoY = range( rangesteps[ "y" ][ 0 ], rangesteps[ "y" ][ 1 ], rangesteps[ "y" ][ 2 ] )
+  s = stages.open_socket()
+  for i in rangoX:
+    data.append( [] )
+    for j in rangoY:
+      coordinates = center[ : ]
+      coordinates[ 0 ] += i
+      coordinates[ 1 ] += j
+      print "\nAcquiring in (x,y): (%d/%d, %d/%d)" % ( rangoX.index( i ) + 1, len( rangoX ), rangoY.index( j ) + 1, len( rangoY ) )
+      cc = stages.sendtoCoordinates( s, coordinates )
+      if cc == [ "out", "out", "out" ]:
+       stages.close_socket( s )
+       return cc
+      filename = "scan2D_%s_x%s_y%s.bin" % ( args.subparser, str( center[ axes.index( "x" ) ] + i ), str( center[ axes.index( "y" ) ] + j ) )
+      acquireData( scope, args.acquisition_number, args.average_number, filename, channel )
+  stages.close_socket( s )
+
+def parseador():
+  parser = argparse.ArgumentParser( description = "Laser Focus program" )
+  subparser = parser.add_subparsers()
+  first = subparser.add_parser( "First", help = "Focus on the First diode" )
+  second = subparser.add_parser( "Second", help = "Focus on the Second diode" )
+  third = subparser.add_parser( "Third", help = "Focus on the Third diode" )
+  fourth = subparser.add_parser( "Fourth", help = "Focus on the Fourth diode" )
+  fifth = subparser.add_parser( "Fifth", help = "Focus on the Fifth diode" )
+  sixth = subparser.add_parser( "Sixth", help = "Focus on the Sixth diode" )
+  seventh = subparser.add_parser( "Seventh", help = "Focus on the Seventh diode" )
+  ref = subparser.add_parser( "Ref", help = "Focus on the Reference diode" )
+  first.set_defaults( subparser = "First" )
+  second.set_defaults( subparser = "Second" )
+  third.set_defaults( subparser = "Third" )
+  fourth.set_defaults( subparser = "Fourth" )
+  fifth.set_defaults( subparser = "Fifth" )
+  sixth.set_defaults( subparser = "Sixth" )
+  seventh.set_defaults( subparser = "Seventh" )
+  ref.set_defaults( subparser = "Ref" )
+  parser.add_argument( "-f", "--files", nargs="+", help = "list of files to analyze", metavar = "" )
+  parser.add_argument( "-a", "--acquisition_mode", type = str, choices = [ "sample", "peakdetect", "average", "envelope" ], default = "sample", help = "acquisition mode. Choices = sample, peakdetect, average, envelope. Default = %(default)s", metavar = "" )
+  parser.add_argument( "-g", "--average_number", type = str, default = "100", help = "average number for average acquisition. Default = %(default)s", metavar = "" )
+  parser.add_argument( "-n", "--acquisition_number", type = int, default = 100, help = "number of acquisitions for the TCT. Default = %(default)s. For average mode, default = 1", metavar = "" )
+  parser.add_argument( "-c", "--channel", type = int, default = "1", help = "acquisition channel. Default = %(default)s", metavar = "" )
+  parser.add_argument( "-v", "--voltage", type = str, default = "0", help = "bias voltage applied to the sensor in V. Default = %(default)s", metavar = ""  )
+  parser.add_argument( "-m", "--compliance", type = float, default = "10e-6", help = "complienace. Default = %(default)s", metavar = "" )
+  parser.add_argument( "-l", "--amp_voltage", type = str, default = "8", help = "bias voltage for the amplifier in V. Default = %(default)sV", metavar = ""  )
+  parser.add_argument( "-j", "--amp_compliance", type = float, default = "300e-3", help = "compliance for the amplifier power supply. Default = %(default)sA", metavar = "" )
+  parser.add_argument( "-t", "--temperature", type = str, default = "32", help = "acquisition temperature in F. Default = %(default)s", metavar = ""  )
+  parser.add_argument( "-e", "--axis", type = list, default = "xyz", help = "focus the chosen axis. Default = [x,y,z]", metavar = "" )
+  parser.add_argument( "-s", "--size", type = str, default = "Ref", choices = [ "Small", "Big", "Ref", "Rough", "Medium", "Fine" ], help = "type of size for number of steps. Sizes = Small, Big, Ref, Rough, Medium, Fine. Default = %(default)s", metavar = ""  )
+  parser.add_argument( "-b", "--bulk", type = str, choices = [ "p", "n" ], help = "bulk of the sensor. Choices = n, p", metavar = "" )
+  parser.add_argument( "-x", "--no_turn_off", action='store_true', help = "do not turn off the power supply at the end." )
+  parser.add_argument( "-y", "--no_turn_on", action='store_true', help = "do not control the HV power supply." )
+  args = parser.parse_args()
+  if args.voltage and not args.bulk and not args.go_to_position:
+    parser.error( "--voltage requires --bulk" )
+  if float( args.voltage  ) > 0 and args.bulk == "n":
+    parser.error( "n bulk requires negative voltage" )
+  if float( args.voltage  ) < 0 and args.bulk == "p":
+    parser.error( "p bulk requires positive voltage" )
+  if args.acquisition_mode == "average":
+    args.acquisition_number = 1
+  for ax in args.axis:
+    if ax not in [ "x", "y", "z" ]:
+      raise ValueError( "Humm... " + ax + " not standard axis. See help." )
+    if args.axis.count( "x" ) > 1:
+      for i in range( args.axis.count( "x" ) - 1 ):
+        args.axis.remove( "x" )
+    if args.axis.count( "y" ) > 1:
+      for i in range( args.axis.count( "y" ) - 1 ):
+        args.axis.remove( "y" )
+    if args.axis.count( "z" ) > 1:
+      for i in range( args.axis.count( "z" ) - 1 ):
+        args.axis.remove( "z" )
+  return args
+
+def main( args ):
+  factory = InterfaceFactory( "setupBrown.ini" )
+  scope = factory.getDevice( "scope" )
+  keithley = factory.getDevice( "highVoltage" )
+#  agilent = factory.getDevice( "lowVoltage" )
+  shutil.copyfile( "sensors.txt", "sensors_back.txt" )
+#  agilent.setChannel( "P25V" )
+#  pW.setPowerSupply( agilent, args.amp_voltage, args.amp_compliance )
+  if not args.no_turn_on:
+    pW.setPowerSupply( keithley, args.voltage, args.compliance )
+  confScope( scope, args.channel )
+  if args.acquisition_mode == "average":
+    scope.average( args.average_number )
+    scope.controlAcquisition( "NORMAL" )
+    channel = scope.function
+  else:
+    scope.controlAcquisition( "SINGLE" )
+    channel = scope.channel
+  sensors = cF.getCoordFromFile()
+  s = stages.open_socket()
+  stages.sendtoCoordinates( s, sensors[ args.subparser ] )
+  getElectronicNoiseSignal( s, sensors, args, scope, channel )
+  stages.close_socket( s )
+  findOptimumPosition( sensors, scope, args, channel )
+  if not args.no_turn_off:
+    pW.turnOFFPowerSupply( keithley )
+
+
+if __name__ == "__main__":
+  args = parseador()
+  main( args )

@@ -1,0 +1,23 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import argparse
+import stages
+
+
+def parseador():
+  parser = argparse.ArgumentParser( description = "Move the axis to the selected relative position." )
+  parser.add_argument( "-c", "--cmd", type = str , default = "", help = "command to send to labview", metavar = "" )
+  args = parser.parse_args()
+  return args
+
+def main( cmd ):
+  s = stages.open_socket()
+  s.send(cmd+"\r\n")
+  x = s.recv( 1024 ).replace( "\r\n", "" )
+  print x
+  stages.close_socket( s )
+
+if __name__ == "__main__":
+  args = parseador()
+  main( args.cmd )

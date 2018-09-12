@@ -1,0 +1,27 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import socket
+import time
+
+
+def open_socket():
+  ip_address = "128.148.63.202"
+  port = 5020
+  s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  s.connect( ( ip_address, port ) )
+  return s
+
+def close_socket( s ):
+  s.send( "Q\r\n" )
+  s.close()
+
+def enableTestMode( s ):
+  s.send("T1")
+
+if __name__ == "__main__":
+  s = open_socket()
+  enableTestMode(s)
+  close_socket(s)
+
+
